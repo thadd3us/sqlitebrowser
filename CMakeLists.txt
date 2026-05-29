@@ -89,6 +89,21 @@ if(sqlcipher)
     find_package(SQLCipher REQUIRED)
     include_directories(SYSTEM "${SQLCIPHER_INCLUDE_DIR}/sqlcipher")
     set(LIBSQLITE_NAME SQLCipher::SQLCipher)
+elseif(DOLTLITE_DIR)
+    # Build against Dolthub's doltlite (a drop-in SQLite replacement that
+    # adds Git-like version control). DOLTLITE_DIR should point at the
+    # doltlite build directory containing sqlite3.h / doltlite.h and
+    # libdoltlite.a (and libdoltlite.dylib).
+    message(STATUS "Using doltlite from ${DOLTLITE_DIR}")
+    add_library(doltlite STATIC IMPORTED)
+    set_target_properties(doltlite PROPERTIES
+        IMPORTED_LOCATION "${DOLTLITE_DIR}/libdoltlite.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${DOLTLITE_DIR}"
+    )
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(doltlite INTERFACE ZLIB::ZLIB Threads::Threads)
+    find_package(Threads REQUIRED)
+    set(LIBSQLITE_NAME doltlite)
 else()
     find_package(SQLite3 REQUIRED)
     set(LIBSQLITE_NAME SQLite::SQLite3)
