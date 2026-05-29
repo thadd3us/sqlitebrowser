@@ -1,0 +1,161 @@
+name: Release (macOS arm64, doltlite)
+
+# Builds DB Browser for SQLite linked against libdoltlite, signs and
+# notarizes it, and publishes a DMG you can hand to other people.
+#
+# Triggered manually. If you provide a `version` input it also creates
+# a GitHub release tagged v<version> with the DMG attached; otherwise
+# the DMG is just uploaded as a workflow artifact.
+#
+# Required secrets (Settings -> Secrets and variables -> Actions):
+#   MACOS_CODESIGN_P12          base64 of your Developer ID Application .p12
+#   MACOS_CODESIGN_P12_PW       password used when exporting the .p12
+#   MACOS_CODESIGN_KEYCHAIN_PW  any random string (temp keychain password)
+#   MACOS_CODESIGN_DEV_ID       e.g. "Developer ID Application: Thad Hughes (ABCDE12345)"
+#   MACOS_CODESIGN_APPLE_ID     your Apple ID email
+#   MACOS_CODESIGN_APPLE_PW     app-specific password from appleid.apple.com
+#   MACOS_CODESIGN_TEAM_ID      10-char Team ID, e.g. "ABCDE12345"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.0). Omit to just produce an artifact.'
+        required: false
+        type: string
+      doltlite_ref:
+        description: 'doltlite git ref (branch/tag/sha) to build against.'
+        required: false
+        default: 'master'
+        type: string
+
+jobs:
+  build:
+    name: Build + sign + notarize
+    runs-on: macos-14   # Apple Silicon
+    permissions:
+      contents: write
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+
+    steps:
+      - name: Checkout sqlitebrowser
+        uses: actions/checkout@v4
+
+      - name: Checkout doltlite
+        uses: actions/checkout@v4
+        with:
+          repository: dolthub/doltlite
+          ref: ${{ inputs.doltlite_ref }}
+          path: doltlite
+
+      - name: Install build dependencies
+        run: brew install qt@5 ninja
+
+      - name: Build libdoltlite
+        run: |
+          cd doltlite
+          mkdir build && cd build
+          ../configure
+          make -j$(sysctl -n hw.ncpu) doltlite-lib
+
+      - name: Configure sqlitebrowser
+        run: |
+          mkdir build && cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5) \
+            -DDOLTLITE_DIR=${{ github.workspace }}/doltlite/build \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            ..
+
+      - name: Build sqlitebrowser
+        working-directory: ./build
+        run: ninja
+
+      - name: Import signing certificate
+        env:
+          P12: ${{ secrets.MACOS_CODESIGN_P12 }}
+          P12_PW: ${{ secrets.MACOS_CODESIGN_P12_PW }}
+          KEYCHAIN_PW: ${{ secrets.MACOS_CODESIGN_KEYCHAIN_PW }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/cert.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$P12" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PW" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+
+      - name: Bundle Qt and sign app
+        env:
+          DEV_ID: ${{ secrets.MACOS_CODESIGN_DEV_ID }}
+        run: |
+          APP="build/DB Browser for SQLite.app"
+          $(brew --prefix qt@5)/bin/macdeployqt "$APP" -sign-for-notarization="$DEV_ID"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create DMG
+        id: dmg
+        run: |
+          APP="build/DB Browser for SQLite.app"
+          STAGING=$RUNNER_TEMP/dmg-staging
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="dev-$(git rev-parse --short HEAD)"; fi
+          DMG="DB-Browser-for-SQLite-doltlite-${VERSION}-arm64.dmg"
+          hdiutil create -volname "DB Browser for SQLite" \
+            -srcfolder "$STAGING" -ov -format ULFO "$DMG"
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sign DMG
+        env:
+          DEV_ID: ${{ secrets.MACOS_CODESIGN_DEV_ID }}
+        run: |
+          codesign --sign "$DEV_ID" --timestamp --options=runtime "${{ steps.dmg.outputs.path }}"
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.MACOS_CODESIGN_APPLE_ID }}
+          APPLE_PW: ${{ secrets.MACOS_CODESIGN_APPLE_PW }}
+          TEAM_ID: ${{ secrets.MACOS_CODESIGN_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "${{ steps.dmg.outputs.path }}" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PW" \
+            --team-id "$TEAM_ID" --wait
+
+      - name: Staple notarization ticket
+        run: xcrun stapler staple "${{ steps.dmg.outputs.path }}"
+
+      - name: Clean up keychain
+        if: always()
+        continue-on-error: true
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ steps.dmg.outputs.version }}
+          path: ${{ steps.dmg.outputs.path }}
+          retention-days: 14
+
+      - name: Create GitHub release
+        if: inputs.version != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }} (doltlite)
+          files: ${{ steps.dmg.outputs.path }}
+          body: |
+            DB Browser for SQLite linked against
+            [doltlite](https://github.com/dolthub/doltlite) — a SQLite fork
+            with Git-like version control via the prolly tree engine.
+
+            macOS arm64 (Apple Silicon), signed and notarized.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
