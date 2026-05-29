@@ -64,6 +64,7 @@ jobs:
           mkdir build && cd build
           cmake -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=14 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5) \
             -DDOLTLITE_DIR=${{ github.workspace }}/doltlite/build \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
