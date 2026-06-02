@@ -26,7 +26,7 @@ on:
       doltlite_ref:
         description: 'doltlite git ref (branch/tag/sha) to build against.'
         required: false
-        default: 'master'
+        default: 'v0.11.3'
         type: string
 
 jobs:
