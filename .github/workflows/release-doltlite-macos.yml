@@ -23,10 +23,10 @@ on:
         description: 'Release version (e.g. 0.1.0). Omit to just produce an artifact.'
         required: false
         type: string
-      doltlite_ref:
-        description: 'doltlite git ref (branch/tag/sha) to build against.'
+      doltlite_version:
+        description: 'doltlite release version (e.g. 0.11.4). The prebuilt macOS arm64 libdoltlite for that version is downloaded.'
         required: false
-        default: 'master'
+        default: '0.11.4'
         type: string
 
 jobs:
@@ -42,22 +42,23 @@ jobs:
       - name: Checkout sqlitebrowser
         uses: actions/checkout@v4
 
-      - name: Checkout doltlite
-        uses: actions/checkout@v4
-        with:
-          repository: dolthub/doltlite
-          ref: ${{ inputs.doltlite_ref }}
-          path: doltlite
-
       - name: Install build dependencies
         run: brew install qt@5 ninja
 
-      - name: Build libdoltlite
+      - name: Download prebuilt libdoltlite
+        id: doltlite
         run: |
-          cd doltlite
-          mkdir build && cd build
-          ../configure
-          make -j$(sysctl -n hw.ncpu) doltlite-lib
+          VER="${{ inputs.doltlite_version }}"
+          ZIP="doltlite-lib-osx-arm64-${VER}.zip"
+          URL="https://github.com/dolthub/doltlite/releases/download/v${VER}/${ZIP}"
+          curl -fL "$URL" -o "$ZIP"
+          unzip -q "$ZIP"
+          DIR="$PWD/doltlite-lib-osx-arm64-${VER}"
+          # sqlitebrowser source #include's <sqlite3.h>; the upstream
+          # make-doltlite-lib target ships it under that name, but the
+          # prebuilt zip only has doltlite.h. They are identical content.
+          cp "$DIR/doltlite.h" "$DIR/sqlite3.h"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
       - name: Configure sqlitebrowser
         run: |
@@ -66,7 +67,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_STANDARD=14 \
             -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5) \
-            -DDOLTLITE_DIR=${{ github.workspace }}/doltlite/build \
+            -DDOLTLITE_DIR=${{ steps.doltlite.outputs.dir }} \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             ..
 
