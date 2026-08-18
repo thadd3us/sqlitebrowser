@@ -1786,6 +1786,7 @@ void MainWindow::updateRecentFileActions()
 {
     // Get recent files list from settings
     QStringList files = Settings::getValue("General", "recentFileList").toStringList();
+    const bool enableRoRecentFileShortcuts = Settings::getValue("General", "recentfileshortcuts").toBool();
 
     // Check if files still exist and remove any non-existent file
     for(int i=0;i<files.size();i++)
@@ -1821,18 +1822,24 @@ void MainWindow::updateRecentFileActions()
         recentFileActs[i]->setData(files[i]);
         recentFileActs[i]->setVisible(true);
 
+        QList<QKeySequence> shortcuts = {};
         // Add shortcut for opening the file using the keyboard. However, if the application is configured to store
         // more than nine recently opened files don't set shortcuts for the later ones which wouldn't be single digit anymore.
-        if(i < 9)
+        if (i < 9)
         {
-            recentFileActs[i]->setShortcuts({
-                                                QKeySequence(Qt::CTRL | (Qt::Key_1 + i)),
-                                                QKeySequence(Qt::CTRL | Qt::SHIFT | (Qt::Key_1 + i))
-                                            });
+            shortcuts = {QKeySequence(Qt::CTRL | (Qt::Key_1 + i))};
+            if (enableRoRecentFileShortcuts)
+            {
+                shortcuts.append(QKeySequence(Qt::CTRL | Qt::SHIFT | (Qt::Key_1 + i)));
+            }
         }
+        recentFileActs[i]->setShortcuts(shortcuts);
     }
     for (int j = numRecentFiles; j < MaxRecentFiles; ++j)
+    {
         recentFileActs[j]->setVisible(false);
+        recentFileActs[j]->setShortcuts({});
+    }
 }
 
 void MainWindow::setCurrentFile(const QString &fileName)
@@ -2089,18 +2096,24 @@ void MainWindow::logSql(const QString& sql, int msgtype)
 // Ask user to save the buffer in the specified tab index.
 // ignoreUnattachedBuffers is used to store answer about buffers not linked to files, so user is only asked once about them.
 // Return true unless user wants to cancel the invoking action.
-bool MainWindow::askSaveSqlTab(int index, bool& ignoreUnattachedBuffers)
+bool MainWindow::askSaveSqlTab(int index, bool& ignoreUnattachedBuffers, bool singleTabClose)
 {
     SqlExecutionArea* sqlExecArea = qobject_cast<SqlExecutionArea*>(ui->tabSqlAreas->widget(index));
     const bool isPromptSQLTabsInNewProject = Settings::getValue("General", "promptsqltabsinnewproject").toBool();
 
     if(sqlExecArea->getEditor()->isModified()) {
-        if(sqlExecArea->fileName().isEmpty() && !ignoreUnattachedBuffers && isPromptSQLTabsInNewProject) {
-            // Once the project is saved, remaining SQL tabs will not be modified, so this is only expected to be asked once.
-            QString message = currentProjectFilename.isEmpty() ?
-                tr("Do you want to save the changes made to SQL tabs in a new project file?") :
-                tr("Do you want to save the changes made to SQL tabs in the project file '%1'?").
-                arg(QFileInfo(currentProjectFilename).fileName());
+        if(sqlExecArea->fileName().isEmpty() && !ignoreUnattachedBuffers && (singleTabClose || isPromptSQLTabsInNewProject)) {
+            // For single-tab closes, always prompt with singular wording.
+            // For bulk closes, only asked once after project save.
+            QString message = singleTabClose ?
+                (currentProjectFilename.isEmpty() ?
+                    tr("Do you want to save the changes made to this SQL tab in a new project file?") :
+                    tr("Do you want to save the changes made to this SQL tab in the project file '%1'?").
+                    arg(QFileInfo(currentProjectFilename).fileName())) :
+                (currentProjectFilename.isEmpty() ?
+                    tr("Do you want to save the changes made to SQL tabs in a new project file?") :
+                    tr("Do you want to save the changes made to SQL tabs in the project file '%1'?").
+                    arg(QFileInfo(currentProjectFilename).fileName()));
             QMessageBox::StandardButton reply = QMessageBox::question(nullptr,
                                                                       QApplication::applicationName(),
                                                                       message,
@@ -2154,7 +2167,7 @@ void MainWindow::closeSqlTab(int index, bool force, bool askSaving)
     }
     // Ask for saving and comply with cancel answer.
     bool ignoreUnattachedBuffers = false;
-    if (askSaving && !askSaveSqlTab(index, ignoreUnattachedBuffers))
+    if (askSaving && !askSaveSqlTab(index, ignoreUnattachedBuffers, true))
         return;
     // Remove the tab and delete the widget
     QWidget* w = ui->tabSqlAreas->widget(index);
@@ -2405,6 +2418,8 @@ void MainWindow::reloadSettings()
         MaxRecentFiles = newMaxRecentFiles;
         updateRecentFileActions();
     }
+
+    updateRecentFileActions();
 
     Settings::AppStyle style = static_cast<Settings::AppStyle>(Settings::getValue("General", "appStyle").toInt());
 
