@@ -609,7 +609,11 @@ void MainWindow::fileNew()
     {
         if(QFile::exists(fileName))
             QFile::remove(fileName);
-        db.create(fileName);
+        if(!db.create(fileName))
+        {
+            QMessageBox::warning(this, qApp->applicationName(), tr("Could not create database file.\nReason: %1").arg(db.lastError()));
+            return;
+        }
         setCurrentFile(fileName);
         addToRecentFilesMenu(fileName);
         statusEncodingLabel->setText(db.getPragma("encoding"));
