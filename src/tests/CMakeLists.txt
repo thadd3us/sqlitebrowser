@@ -81,3 +81,29 @@ set(TESTCACHE_HDR
 add_executable(test-cache ${TESTCACHE_HDR} ${TESTCACHE_SRC})
 target_link_libraries(test-cache ${QT_MAJOR}::Test)
 add_test(NAME test-cache COMMAND $<TARGET_FILE:test-cache>)
+
+# test database creation ("File > New Database")
+
+set(TESTDBCREATE_SRC
+    TestDatabaseCreate.cpp
+    ../sqlitedb.cpp
+    ../Settings.cpp
+    ../CipherSettings.cpp
+    ../Data.cpp
+    ../sql/sqlitetypes.cpp
+    ../sql/Query.cpp
+    ../sql/ObjectIdentifier.cpp
+    ../sql/parser/ParserDriver.cpp
+    ../sql/parser/sqlite3_lexer.cpp
+    ../sql/parser/sqlite3_parser.cpp
+)
+
+set(TESTDBCREATE_HDR
+    TestDatabaseCreate.h
+)
+
+add_executable(test-database-create ${TESTDBCREATE_HDR} ${TESTDBCREATE_SRC})
+target_link_libraries(test-database-create
+    ${QT_MAJOR}::Test ${QT_MAJOR}::Widgets ${QT5_COMPAT} ${LIBSQLITE_NAME}
+)
+add_test(NAME test-database-create COMMAND $<TARGET_FILE:test-database-create>)

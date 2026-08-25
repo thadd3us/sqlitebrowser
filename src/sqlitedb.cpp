@@ -227,6 +227,8 @@ bool DBBrowserDB::open(const QString& db, bool readOnly)
     if(sqlite3_open_v2(db.toUtf8(), &_db, readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK)
     {
         lastErrorMessage = QString::fromUtf8(sqlite3_errmsg(_db));
+        sqlite3_close_v2(_db);
+        _db = nullptr;
         return false;
     }
 
@@ -733,15 +735,24 @@ bool DBBrowserDB::create ( const QString & db)
         // force sqlite3 do write proper file header
         // if we don't create and drop the table we might end up
         // with a 0 byte file, if the user cancels the create table dialog
+        bool header_written;
         {
             NoStructureUpdateChecks nup(*this);
-            executeSQL("CREATE TABLE notempty (id integer primary key);", false, false);
-            executeSQL("DROP TABLE notempty;", false, false);
+            header_written = executeSQL("CREATE TABLE notempty (id integer primary key);", false, false);
+            if(header_written)
+                executeSQL("DROP TABLE notempty;", false, false);
         }
 
         // Close database and open it through the code for opening existing database files. This is slightly less efficient but saves us some duplicate
         // code.
-        sqlite3_close_v2(_db);
+        close();
+
+        // sqlite3_open() doesn't touch the file yet, so writing the header above is the first operation which can
+        // fail for things like an unwritable target directory. Stop here in that case: the error message we got from
+        // the database engine is a lot more helpful than whatever the next statement on a half-created file reports.
+        if(!header_written)
+            return false;
+
         return open(db);
     } else {
         return false;
