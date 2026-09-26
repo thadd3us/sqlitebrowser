@@ -10,7 +10,7 @@
 //  - passed to QFileDialog to filter files shown based on extension
 //
 // SQLite DB File Extensions
-static const QString FILE_FILTER_SQLDB(QObject::tr("SQLite Database Files (*.db *.sqlite *.sqlite3 *.db3)"));
+static const QString FILE_FILTER_SQLDB(QObject::tr("SQLite Database Files (*.db *.sqlite *.sqlite3 *.db3 *.sqlitedb *.s3db *.sl3 *.doltlite *.doltlite_db)"));
 
 // SQLite DB Project File Extensions
 static const QString FILE_FILTER_SQLPRJ(QObject::tr("DB Browser for SQLite Project Files (*.sqbpro)"));

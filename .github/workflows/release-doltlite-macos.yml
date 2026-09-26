@@ -24,9 +24,9 @@ on:
         required: false
         type: string
       doltlite_version:
-        description: 'doltlite release version (e.g. 0.11.4). The prebuilt macOS arm64 libdoltlite for that version is downloaded.'
+        description: 'doltlite release version (e.g. 0.50.12). The prebuilt macOS arm64 libdoltlite for that version is downloaded.'
         required: false
-        default: '0.11.4'
+        default: '0.50.12'
         type: string
 
 jobs:

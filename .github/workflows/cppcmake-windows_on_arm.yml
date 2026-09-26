@@ -21,15 +21,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-11-arm]
+        os: [windows-11-vs2026-arm]
     env:
       GH_TOKEN: ${{ github.token }}
+      OPENSSL_INCLUDE_DIR: C:\dev\OpenSSL\include
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14.4"
           cache: "pip"
@@ -44,6 +45,23 @@ jobs:
           $OpenSSLInstallerFileName = (python download_latest_openssl3.py).Trim()
           Start-Process -FilePath ".\$OpenSSLInstallerFileName" -ArgumentList '/ALLUSERS /verysilent /dir="C:\dev\OpenSSL"' -Wait
 
+      - name: Resolve OpenSSL library directory
+        run: |
+          $OpenSSLLibCandidates = @("arm64", "ARM64")
+          $OpenSSLLibArch = $null
+          foreach ($Candidate in $OpenSSLLibCandidates) {
+            if ((Test-Path "C:\dev\OpenSSL\lib\VC\$Candidate\MD\libcrypto.lib") -and (Test-Path "C:\dev\OpenSSL\lib\VC\$Candidate\MD\libssl.lib")) {
+              $OpenSSLLibArch = $Candidate
+              break
+            }
+          }
+
+          if ($null -eq $OpenSSLLibArch) {
+            throw "Could not locate OpenSSL libraries for ARM64"
+          }
+
+          "OPENSSL_LIB_ARCH=$OpenSSLLibArch" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -53,11 +71,13 @@ jobs:
           modules: "debug_info qt5compat qtactiveqt qtcharts qtconnectivity qtgraphs qtgrpc qthttpserver qtimageformats qtlanguageserver qtlocation qtlottie qtmultimedia qtnetworkauth qtpositioning qtquick3d qtquick3dphysics qtquicktimeline qtremoteobjects qtscxml qtsensors qtserialbus qtserialport qtshadertools qtspeech qtvirtualkeyboard qtwebchannel qtwebsockets"
           version: 6.8.3
 
+      - name: Install VS2022
+        run: choco install visualstudio2022community --package-parameters "--add Microsoft.VisualStudio.Component.VC.Tools.ARM64 Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows10SDK.19041 --add Microsoft.VisualStudio.Component.VC.14.44.17.14.ARM64"
+
       - name: Setup MSVC for ARM64
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
-          vsversion: 2022
 
       - name: Build SQLite
         run: |
@@ -104,24 +124,23 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-          vsversion: 2022
 
       - name: Build x64 binaries for build SQLCipher
         run: |
-          git clone https://www.github.com/sqlcipher/sqlcipher C:\dev\SQLCipher --branch v4.6.1
+          git clone https://www.github.com/sqlcipher/sqlcipher C:\dev\SQLCipher
           cd C:\dev\SQLCipher
+          git checkout $(git describe --tags --abbrev=0)
           nmake /f Makefile.msc lemon.exe mkkeywordhash.exe mksourceid.exe src-verify.exe USE_AMALGAMATION=1 NO_TCL=1 SQLITE3DLL=sqlcipher.dll SQLITE3LIB=sqlcipher.lib SQLITE3EXE=sqlcipher.exe LTLINKOPTS="C:\dev\OpenSSL\lib\VC\x64\MD\libcrypto.lib" OPT_FEATURE_FLAGS="-DSQLITE_TEMP_STORE=2 -DSQLITE_HAS_CODEC=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_FTS3_PARENTHESIS=1 -DSQLITE_ENABLE_STAT4=1 -DSQLITE_SOUNDEX=1 -DSQLITE_ENABLE_JSON1=1 -DSQLITE_ENABLE_GEOPOLY=1 -DSQLITE_ENABLE_RTREE=1 -DSQLCIPHER_CRYPTO_OPENSSL=1 -DSQLITE_MAX_ATTACHED=125 -IC:\dev\OpenSSL\include\x64"
 
       - name: Re-setup MSVC for ARM64
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
-          vsversion: 2022
 
       - name: Build SQLCipher
         run: |
           cd C:\dev\SQLCipher
-          nmake /f Makefile.msc sqlcipher.dll USE_AMALGAMATION=1 NO_TCL=1 SQLITE3DLL=sqlcipher.dll SQLITE3LIB=sqlcipher.lib SQLITE3EXE=sqlcipher.exe LTLINKOPTS="C:\dev\OpenSSL\lib\VC\arm64\MD\libcrypto.lib" OPT_FEATURE_FLAGS="-DSQLITE_TEMP_STORE=2 -DSQLITE_HAS_CODEC=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_FTS3_PARENTHESIS=1 -DSQLITE_ENABLE_STAT4=1 -DSQLITE_SOUNDEX=1 -DSQLITE_ENABLE_JSON1=1 -DSQLITE_ENABLE_GEOPOLY=1 -DSQLITE_ENABLE_RTREE=1 -DSQLCIPHER_CRYPTO_OPENSSL=1 -DSQLITE_MAX_ATTACHED=125 -IC:\dev\OpenSSL\include\arm64"
+          nmake /f Makefile.msc sqlcipher.dll USE_AMALGAMATION=1 NO_TCL=1 SQLITE3DLL=sqlcipher.dll SQLITE3LIB=sqlcipher.lib SQLITE3EXE=sqlcipher.exe LTLINKOPTS="C:\dev\OpenSSL\lib\VC\arm64\MD\libcrypto.lib" OPT_FEATURE_FLAGS="-DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLITE_TEMP_STORE=2 -DSQLITE_HAS_CODEC=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_FTS3_PARENTHESIS=1 -DSQLITE_ENABLE_STAT4=1 -DSQLITE_SOUNDEX=1 -DSQLITE_ENABLE_JSON1=1 -DSQLITE_ENABLE_GEOPOLY=1 -DSQLITE_ENABLE_RTREE=1 -DSQLCIPHER_CRYPTO_OPENSSL=1 -DSQLITE_MAX_ATTACHED=125 -IC:\dev\OpenSSL\include\arm64"
           mkdir sqlcipher
           copy sqlite3.h sqlcipher
           # Avoid the C2059 error.
@@ -130,7 +149,7 @@ jobs:
       - name: Configure build (SQLite)
         run: |
           mkdir release-sqlite && cd release-sqlite
-          cmake -G "Ninja Multi-Config" -DCMAKE_PREFIX_PATH="C:\dev\SQLite" -DENABLE_TESTING=ON -DQT_MAJOR=Qt6 ..\
+          cmake -G "Ninja Multi-Config" -DCMAKE_PREFIX_PATH="C:\dev\SQLite" -DOPENSSL_INCLUDE_DIR="$env:OPENSSL_INCLUDE_DIR" -DOPENSSL_CRYPTO_LIBRARY="C:\dev\OpenSSL\lib\VC\$env:OPENSSL_LIB_ARCH\MD\libcrypto.lib" -DOPENSSL_SSL_LIBRARY="C:\dev\OpenSSL\lib\VC\$env:OPENSSL_LIB_ARCH\MD\libssl.lib" -DENABLE_TESTING=ON -DQT_MAJOR=Qt6 ..\
 
       - name: Build (SQLite)
         run: |
@@ -145,7 +164,7 @@ jobs:
       - name: Configure build (SQLCipher)
         run: |
           mkdir release-sqlcipher && cd release-sqlcipher
-          cmake -G "Ninja Multi-Config" -Dsqlcipher=1 -DCMAKE_PREFIX_PATH="C:\dev\OpenSSL;C:\dev\SQLCipher" -DENABLE_TESTING=ON -DQT_MAJOR=Qt6 ..\
+          cmake -G "Ninja Multi-Config" -Dsqlcipher=1 -DCMAKE_PREFIX_PATH="C:\dev\OpenSSL;C:\dev\SQLCipher" -DOPENSSL_INCLUDE_DIR="$env:OPENSSL_INCLUDE_DIR" -DOPENSSL_CRYPTO_LIBRARY="C:\dev\OpenSSL\lib\VC\$env:OPENSSL_LIB_ARCH\MD\libcrypto.lib" -DOPENSSL_SSL_LIBRARY="C:\dev\OpenSSL\lib\VC\$env:OPENSSL_LIB_ARCH\MD\libssl.lib" -DENABLE_TESTING=ON -DQT_MAJOR=Qt6 ..\
 
       - name: Build (SQLCipher)
         run: |

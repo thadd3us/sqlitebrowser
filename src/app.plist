@@ -13,9 +13,27 @@
 				<string>db3</string>
 				<string>sqlite</string>
 				<string>sqlite3</string>
+				<string>sqlitedb</string>
+				<string>s3db</string>
+				<string>sl3</string>
 			</array>
 			<key>CFBundleTypeName</key>
 			<string>Database Document</string>
+			<key>CFBundleTypeOSTypes</key>
+			<array>
+				<string>****</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>doltlite</string>
+				<string>doltlite_db</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Doltlite Database</string>
 			<key>CFBundleTypeOSTypes</key>
 			<array>
 				<string>****</string>
